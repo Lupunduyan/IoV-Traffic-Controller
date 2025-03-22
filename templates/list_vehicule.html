@@ -520,9 +520,16 @@
                                                 <a href="" data-bs-toggle="modal" data-bs-target="#modalToggle{{ loop.index }}">
                                                     <span class="badge bg-label-danger">Supprimer</span>
                                                 </a>
-                                                <a href="{{ url_for('vehicule', id=vehicule.id) }}">
-                                                    <span class="badge bg-label-info">Ouvrir</span>
-                                                </a>
+                                                {% if vehicule.id %}
+                                                  <a href="{{ url_for('vehicule', id=vehicule.id) }}">
+                                                      <span class="badge bg-label-info">Ouvrir</span>
+                                                  </a>
+                                                {% else %}
+                                                  <a>
+                                                      <span class="badge bg-label-info">-</span>
+                                                  </a>
+                                                {% endif %}
+                                                
                                             </td>
                                         </tr>
 
