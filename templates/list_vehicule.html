@@ -535,6 +535,7 @@
 
                                         <div class="modal fade" id="modalToggle{{ loop.index }}" aria-labelledby="modalToggleLabel" tabindex="-1" style="display: none;" aria-hidden="true">
                                           <div class="modal-dialog modal-dialog-centered">
+                                            {% if vehicule.id %}
                                             <div class="modal-content">
                                               <div class="modal-header">
                                                 <h5 class="modal-title" id="modalToggleLabel">Suppression véhicule</h5>
@@ -548,6 +549,7 @@
                                               <a href="{{ url_for('delete_vehicule', id=vehicule.id) }}" type="button" class="btn btn-primary">Supprimer</a>
                                             </div>
                                             </div>
+                                            {% endif %}
                                           </div>
                                         </div>
 
