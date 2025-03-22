@@ -157,46 +157,65 @@ def create_tables():
         logging.error(f"Erreur lors de la création des tables : {e}")
         raise
 
-@app.route('/create_user_mike', methods=['POST'])
+@app.route('/create_user_mike', methods=['POST', 'GET'])
 def create_user_mike():
-    # Données de l'utilisateur Mike
-    nom = "Mike"
-    post_nom = "Doe"  # Vous pouvez ajuster ces valeurs selon vos besoins
-    prenom = "John"
-    password = "1234567890"
-    vehicule = "Aucun"  # Vous pouvez ajuster ces valeurs selon vos besoins
-    role = "utilisateur"  # Vous pouvez ajuster ces valeurs selon vos besoins
+    if request.method == 'POST':
+        # Données de l'utilisateur Mike
+        nom = "Mike"
+        post_nom = "Doe"  # Vous pouvez ajuster ces valeurs selon vos besoins
+        prenom = "John"
+        password = "1234567890"
+        vehicule = "Aucun"  # Vous pouvez ajuster ces valeurs selon vos besoins
+        role = "utilisateur"  # Vous pouvez ajuster ces valeurs selon vos besoins
 
-    # Hachage du mot de passe
-    hashed_password = generate_password_hash(password)
+        # Hachage du mot de passe
+        hashed_password = generate_password_hash(password)
 
-    try:
-        # Connexion à la base de données
-        conn = get_db_connection()
-        cur = conn.cursor()
+        try:
+            # Connexion à la base de données
+            conn = get_db_connection()
+            cur = conn.cursor()
 
+            # Vérifier si l'utilisateur Mike existe déjà
+            cur.execute("SELECT * FROM users WHERE nom = %s;", (nom,))
+            existing_user = cur.fetchone()
+
+            if existing_user:
+                return jsonify({"message": "L'utilisateur Mike existe déjà."}), 409  # 409 = Conflict
+
+            # Insérer l'utilisateur Mike dans la base de données
+            cur.execute(
+                "INSERT INTO users (nom, post_nom, prenom, password, vehicule, role) VALUES (%s, %s, %s, %s, %s, %s)",
+                (nom, post_nom, prenom, hashed_password, vehicule, role)
+            )
+            conn.commit()
+
+            # Fermer la connexion
+            cur.close()
+            conn.close()
+
+            return jsonify({"message": "Utilisateur Mike créé avec succès."}), 201  # 201 = Created
+
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    elif request.method == 'GET':
         # Vérifier si l'utilisateur Mike existe déjà
-        cur.execute("SELECT * FROM users WHERE nom = %s;", (nom,))
-        existing_user = cur.fetchone()
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM users WHERE nom = 'Mike';")
+            existing_user = cur.fetchone()
+            cur.close()
+            conn.close()
 
-        if existing_user:
-            return jsonify({"message": "L'utilisateur Mike existe déjà."}), 409  # 409 = Conflict
+            if existing_user:
+                return jsonify({"message": "L'utilisateur Mike existe déjà.", "user": existing_user}), 200
+            else:
+                return jsonify({"message": "L'utilisateur Mike n'existe pas."}), 404  # 404 = Not Found
 
-        # Insérer l'utilisateur Mike dans la base de données
-        cur.execute(
-            "INSERT INTO users (nom, post_nom, prenom, password, vehicule, role) VALUES (%s, %s, %s, %s, %s, %s)",
-            (nom, post_nom, prenom, hashed_password, vehicule, role)
-        )
-        conn.commit()
-
-        # Fermer la connexion
-        cur.close()
-        conn.close()
-
-        return jsonify({"message": "Utilisateur Mike créé avec succès."}), 201  # 201 = Created
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
 # Modèle pour la table User (utilisé par Flask-Login)
 class User(UserMixin):
