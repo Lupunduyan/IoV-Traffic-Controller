@@ -15,3 +15,7 @@ SQLAlchemy==2.0.35
 typing-extensions==4.12.2
 werkzeug==3.0.4
 zipp==3.20.2
+psycopg2-binary==2.9.10
+gunicorn
+xmltodict==0.13.0
+python-dotenv==1.0.0
