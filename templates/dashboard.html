@@ -678,6 +678,25 @@
                         <div class="card-body p-auto mt-3">
                           <div class="text-center mt-5 pt-5">
                             <div class="dropdown">
+                              {% if vehicule.id %}
+                                <a
+                                class="btn btn-outline-primary"
+                                type="button"
+                                style="width: 145px;"
+                                href="{{ url_for('vehicule', id=vehicule.id) }}"
+                              >
+                                Ouvrir
+                              </a>
+                              {% else %}
+                                <a
+                                class="btn btn-outline-primary"
+                                type="button"
+                                style="width: 145px;"
+                                href="{{ url_for('vehicule', id=vehicule.id) }}"
+                              >
+                                Aucune donnée
+                              </a>
+                              {% endif %}
                               <a
                                 class="btn btn-outline-primary"
                                 type="button"
