@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Weight Monitor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin-top: 50px;
+        }
+        #weight {
+            font-size: 3em;
+            font-weight: bold;
+            color: green;
+        }
+        #warning {
+            color: red;
+            font-size: 1.5em;
+            font-weight: bold;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>Real-Time Weight Monitoring</h1>
+    <div>
+        <p>Current Weight:</p>
+        <div id="weight">Loading...</div>
+        <p id="warning">Warning: Overload!</p>
+    </div>
+
+    <script>
+        const MAX_WEIGHT = 1000;  // Set the maximum allowed weight
+
+        function fetchWeight() {
+            fetch('http://127.0.0.1:5000/get_last_hx711_data?capteur=capteur-12635')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === "ok") {
+                        const weight = data.poids;
+                        document.getElementById('weight').innerText = weight + ' Kg';
+
+                        // Check if weight exceeds the limit
+                        if (weight > MAX_WEIGHT) {
+                            document.getElementById('warning').style.display = 'block';
+                        } else {
+                            document.getElementById('warning').style.display = 'none';
+                        }
+                    } else {
+                        document.getElementById('weight').innerText = 'Error fetching weight';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    document.getElementById('weight').innerText = 'Connection Error';
+                });
+        }
+
+        // Fetch the weight every 5 seconds
+        setInterval(fetchWeight, 1000);
+
+        // Initial fetch on page load
+        fetchWeight();
+    </script>
+</body>
+</html>
