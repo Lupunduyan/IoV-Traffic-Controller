@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template, redirect, url_for, flash
+\from flask import Flask, request, jsonify, render_template, redirect, url_for, flash
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 import psycopg2
@@ -6,7 +6,7 @@ from psycopg2 import OperationalError, ProgrammingError
 import os
 import logging
 from datetime import datetime
-from flask_cors import CORS
+from flask_cors import CORS  # Import CORS
 
 app = Flask(__name__)
 CORS(app)
@@ -123,6 +123,32 @@ def create_tables():
         );
         ''')
 
+        # Table users
+        cur.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            nom VARCHAR(150) NOT NULL,
+            post_nom VARCHAR(150) NOT NULL,
+            prenom VARCHAR(150) NOT NULL,
+            password VARCHAR(10050) NOT NULL,
+            vehicule VARCHAR(150),
+            role VARCHAR(50) NOT NULL
+        );
+        ''')
+
+        # Table vehicules
+        cur.execute('''
+        CREATE TABLE IF NOT EXISTS vehicules (
+            id SERIAL PRIMARY KEY,
+            marque VARCHAR(100) NOT NULL,
+            plaque VARCHAR(100) NOT NULL,
+            capteur_fc51 VARCHAR(100),
+            capteur_tcs230 VARCHAR(100),
+            capteur_hx711 VARCHAR(100),
+            capteur_lm35 VARCHAR(100)
+        );
+        ''')
+
         conn.commit()
         cur.close()
         conn.close()
@@ -131,29 +157,29 @@ def create_tables():
         logging.error(f"Erreur lors de la création des tables : {e}")
         raise
 
-# Modèle pour la table User
+# Modèle pour la table User (utilisé par Flask-Login)
 class User(UserMixin):
-    id = db.Column(db.Integer, primary_key=True)
-    nom = db.Column(db.String(150))
-    post_nom = db.Column(db.String(150))
-    prenom = db.Column(db.String(150))
-    password = db.Column(db.String(10050))
-    vehicule = db.Column(db.String(150))
-    role = db.Column(db.String(50))  # Peut être 'admin', 'chauffeur', 'gestionnaire'
+    def __init__(self, id, nom, post_nom, prenom, password, vehicule, role):
+        self.id = id
+        self.nom = nom
+        self.post_nom = post_nom
+        self.prenom = prenom
+        self.password = password
+        self.vehicule = vehicule
+        self.role = role
 
-# Modèle pour la table Vehicule
-class Vehicule:
-    id = db.Column(db.Integer, primary_key=True)
-    marque = db.Column(db.String(100))
-    plaque = db.Column(db.String(100))
-    capteur_fc51 = db.Column(db.String(100))
-    capteur_tcs230 = db.Column(db.String(100))
-    capteur_hx711 = db.Column(db.String(100))
-    capteur_lm35 = db.Column(db.String(100))
-
+# Charger un utilisateur pour Flask-Login
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM users WHERE id = %s;", (user_id,))
+    user_data = cur.fetchone()
+    cur.close()
+    conn.close()
+    if user_data:
+        return User(user_data[0], user_data[1], user_data[2], user_data[3], user_data[4], user_data[5], user_data[6])
+    return None
 
 # Créer les tables si elles n'existent pas déjà
 with app.app_context():
@@ -183,6 +209,7 @@ def receive_hx711_data():
         cur.execute("INSERT INTO hx711_data (capteur, status, poids, limit_) VALUES (%s, %s, %s, %s)", (capteur, status, poids, limit_))
         conn.commit()
         cur.close()
+        conn.close()
         return jsonify({'message': 'Data inserted successfully'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -201,6 +228,7 @@ def get_last_hx711_data():
         cur.execute("SELECT * FROM hx711_data WHERE capteur = %s ORDER BY id DESC LIMIT 1", (capteur,))
         data = cur.fetchone()
         cur.close()
+        conn.close()
         if data:
             return jsonify(data), 200
         else:
@@ -227,6 +255,7 @@ def receive_fc51_data():
         cur.execute("INSERT INTO fc51_data (capteur, status, obstacle_gauche, obstacle_droite, obstacle_devant, obstacle_deriere) VALUES (%s, %s, %s, %s, %s, %s)", (capteur, status, obstacle_gauche, obstacle_droite, obstacle_devant, obstacle_deriere))
         conn.commit()
         cur.close()
+        conn.close()
         return jsonify({'message': 'Data inserted successfully'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -245,6 +274,7 @@ def get_last_fc51_data():
         cur.execute('SELECT * FROM fc51_data WHERE capteur = %s ORDER BY id DESC LIMIT 1', (capteur,))
         data = cur.fetchone()
         cur.close()
+        conn.close()
         if data:
             return jsonify(data), 200
         else:
@@ -268,6 +298,7 @@ def receive_lm35_data():
         cur.execute("INSERT INTO lm35_data (capteur, status, temperature) VALUES (%s, %s, %s)", (capteur, status, temperature))
         conn.commit()
         cur.close()
+        conn.close()
         return jsonify({'message': 'Temperature data inserted successfully'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -286,6 +317,7 @@ def get_last_lm35_data():
         cur.execute("SELECT * FROM lm35_data WHERE capteur = %s ORDER BY id DESC LIMIT 1", (capteur,))
         data = cur.fetchone()
         cur.close()
+        conn.close()
         if data:
             return jsonify(data), 200
         else:
@@ -311,6 +343,7 @@ def receive_tcs230_data():
         cur.execute("INSERT INTO tcs230_data (capteur, status, red, green, blue) VALUES (%s, %s, %s, %s, %s)", (capteur, status, red, green, blue))
         conn.commit()
         cur.close()
+        conn.close()
         return jsonify({'message': 'Data inserted successfully'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -329,6 +362,7 @@ def get_last_tcs230_data():
         cur.execute("SELECT * FROM tcs230_data WHERE capteur = %s ORDER BY id DESC LIMIT 1", (capteur,))
         data = cur.fetchone()
         cur.close()
+        conn.close()
         if data:
             return jsonify(data), 200
         else:
@@ -349,8 +383,14 @@ def login():
     if request.method == 'POST':
         nom = request.form.get('nom')
         password = request.form.get('password')
-        user = User.query.filter_by(nom=nom).first()
-        if user and check_password_hash(user.password, password):
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM users WHERE nom = %s;", (nom,))
+        user_data = cur.fetchone()
+        cur.close()
+        conn.close()
+        if user_data and check_password_hash(user_data[4], password):
+            user = User(user_data[0], user_data[1], user_data[2], user_data[3], user_data[4], user_data[5], user_data[6])
             login_user(user)
             return redirect(url_for('dashboard'))
         else:
@@ -367,9 +407,12 @@ def signup():
         vehicule = request.form.get('vehicule')
         role = request.form.get('role')
         hashed_password = generate_password_hash(password)
-        new_user = User(nom=nom, post_nom=post_nom, prenom=prenom, password=hashed_password, vehicule=vehicule, role=role)
-        db.session.add(new_user)
-        db.session.commit()
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("INSERT INTO users (nom, post_nom, prenom, password, vehicule, role) VALUES (%s, %s, %s, %s, %s, %s)", (nom, post_nom, prenom, hashed_password, vehicule, role))
+        conn.commit()
+        cur.close()
+        conn.close()
         return redirect(url_for('login'))
     return render_template('signup.html')
 
@@ -377,17 +420,28 @@ def signup():
 @login_required
 def dashboard():
     # Calcul des totaux pour chaque type de capteur
-    total_fc51 = Vehicule.query.filter(Vehicule.capteur_fc51 != None, Vehicule.capteur_fc51 != '').count()
-    total_manquant_fc51 = Vehicule.query.filter(Vehicule.capteur_fc51 == '').count()
+    conn = get_db_connection()
+    cur = conn.cursor()
 
-    total_hx711 = Vehicule.query.filter(Vehicule.capteur_hx711 != None, Vehicule.capteur_hx711 != '').count()
-    total_manquant_hx711 = Vehicule.query.filter(Vehicule.capteur_hx711 == '').count()
+    cur.execute("SELECT COUNT(*) FROM vehicules WHERE capteur_fc51 IS NOT NULL AND capteur_fc51 != '';")
+    total_fc51 = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM vehicules WHERE capteur_fc51 IS NULL OR capteur_fc51 = '';")
+    total_manquant_fc51 = cur.fetchone()[0]
 
-    total_lm35 = Vehicule.query.filter(Vehicule.capteur_lm35 != None, Vehicule.capteur_lm35 != '').count()
-    total_manquant_lm35 = Vehicule.query.filter(Vehicule.capteur_lm35 == '').count()
+    cur.execute("SELECT COUNT(*) FROM vehicules WHERE capteur_hx711 IS NOT NULL AND capteur_hx711 != '';")
+    total_hx711 = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM vehicules WHERE capteur_hx711 IS NULL OR capteur_hx711 = '';")
+    total_manquant_hx711 = cur.fetchone()[0]
 
-    total_tcs230 = Vehicule.query.filter(Vehicule.capteur_tcs230 != None, Vehicule.capteur_tcs230 != '').count()
-    total_manquant_tcs230 = Vehicule.query.filter(Vehicule.capteur_tcs230 == '').count()
+    cur.execute("SELECT COUNT(*) FROM vehicules WHERE capteur_lm35 IS NOT NULL AND capteur_lm35 != '';")
+    total_lm35 = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM vehicules WHERE capteur_lm35 IS NULL OR capteur_lm35 = '';")
+    total_manquant_lm35 = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM vehicules WHERE capteur_tcs230 IS NOT NULL AND capteur_tcs230 != '';")
+    total_tcs230 = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM vehicules WHERE capteur_tcs230 IS NULL OR capteur_tcs230 = '';")
+    total_manquant_tcs230 = cur.fetchone()[0]
 
     # Total de capteurs (tous types confondus)
     total_capteurs = total_fc51 + total_hx711 + total_lm35 + total_tcs230
@@ -396,24 +450,36 @@ def dashboard():
     total_manquant_capteurs = total_manquant_fc51 + total_manquant_hx711 + total_manquant_lm35 + total_manquant_tcs230
 
     # Total de véhicules
-    total_vehicules = Vehicule.query.count()
+    cur.execute("SELECT COUNT(*) FROM vehicules;")
+    total_vehicules = cur.fetchone()[0]
 
     # Récupérer le dernier capteur ajouté
-    dernier_fc51 = Fc51_data.query.order_by(Fc51_data.id.desc()).first()
+    cur.execute("SELECT * FROM fc51_data ORDER BY id DESC LIMIT 1;")
+    dernier_fc51 = cur.fetchone()
     
     if dernier_fc51:
-        vehicule = Vehicule.query.filter_by(capteur_fc51=dernier_fc51.capteur).first()
+        cur.execute("SELECT * FROM vehicules WHERE capteur_fc51 = %s;", (dernier_fc51[1],))
+        vehicule = cur.fetchone()
     else:
         vehicule = None
     
     if vehicule:
         # Récupérer les dernières données de chaque capteur pour ce véhicule
         capteurs_data = {
-            'fc51': Fc51_data.query.filter_by(capteur=vehicule.capteur_fc51).order_by(Fc51_data.id.desc()).first(),
-            'hx711': Hx711_data.query.filter_by(capteur=vehicule.capteur_hx711).order_by(Hx711_data.id.desc()).first(),
-            'lm35': Lm35_data.query.filter_by(capteur=vehicule.capteur_lm35).order_by(Lm35_data.id.desc()).first(),
-            'tcs230': Tcs230_data.query.filter_by(capteur=vehicule.capteur_tcs230).order_by(Tcs230_data.id.desc()).first()
+            'fc51': dernier_fc51,
+            'hx711': None,
+            'lm35': None,
+            'tcs230': None
         }
+        if vehicule[4]:  # capteur_hx711
+            cur.execute("SELECT * FROM hx711_data WHERE capteur = %s ORDER BY id DESC LIMIT 1;", (vehicule[4],))
+            capteurs_data['hx711'] = cur.fetchone()
+        if vehicule[5]:  # capteur_lm35
+            cur.execute("SELECT * FROM lm35_data WHERE capteur = %s ORDER BY id DESC LIMIT 1;", (vehicule[5],))
+            capteurs_data['lm35'] = cur.fetchone()
+        if vehicule[6]:  # capteur_tcs230
+            cur.execute("SELECT * FROM tcs230_data WHERE capteur = %s ORDER BY id DESC LIMIT 1;", (vehicule[6],))
+            capteurs_data['tcs230'] = cur.fetchone()
     else:
         # Si aucun véhicule ou capteur trouvé, on renvoie des données vides
         vehicule = {
@@ -426,6 +492,9 @@ def dashboard():
             'lm35': "",
             'tcs230': ""
         }
+
+    cur.close()
+    conn.close()
 
     # Retourne les données au template
     return render_template('dashboard.html', 
@@ -461,23 +530,16 @@ def ajout_user():
     # Hachage du mot de passe
     hashed_password = generate_password_hash(password)
 
-    # Création d'un nouvel utilisateur
-    nouvel_utilisateur = User(
-        nom=nom,
-        post_nom=post_nom,
-        prenom=prenom,
-        vehicule=vehicule if vehicule else None,  # Vérification si un véhicule est fourni
-        role=role,
-        password=hashed_password
-    )
-
     # Ajout à la base de données
     try:
-        db.session.add(nouvel_utilisateur)
-        db.session.commit()
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("INSERT INTO users (nom, post_nom, prenom, password, vehicule, role) VALUES (%s, %s, %s, %s, %s, %s)", (nom, post_nom, prenom, hashed_password, vehicule, role))
+        conn.commit()
+        cur.close()
+        conn.close()
         flash(f"L'utilisateur {prenom} {nom} a été ajouté avec succès !", 'success')
     except Exception as e:
-        db.session.rollback()
         flash(f"Une erreur s'est produite : {str(e)}", 'error')
 
     # Redirection vers la liste des utilisateurs
@@ -486,16 +548,22 @@ def ajout_user():
 @app.route('/delete_user/<int:id>', methods=['GET', 'POST'])
 def delete_user(id):
     # Rechercher l'utilisateur par son ID
-    user_to_delete = User.query.get_or_404(id)
-
     try:
-        # Supprimer l'utilisateur de la base de données
-        db.session.delete(user_to_delete)
-        db.session.commit()
-        flash(f"L'utilisateur {user_to_delete.prenom} {user_to_delete.nom} a été supprimé avec succès !", 'success')
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM users WHERE id = %s;", (id,))
+        user_to_delete = cur.fetchone()
+        if user_to_delete:
+            cur.execute("DELETE FROM users WHERE id = %s;", (id,))
+            conn.commit()
+            flash(f"L'utilisateur {user_to_delete[3]} {user_to_delete[1]} a été supprimé avec succès !", 'success')
+        else:
+            flash("Utilisateur non trouvé.", 'error')
     except Exception as e:
-        db.session.rollback()  # En cas d'erreur, annuler la transaction
         flash(f"Une erreur s'est produite : {str(e)}", 'error')
+    finally:
+        cur.close()
+        conn.close()
 
     # Redirection vers la liste des utilisateurs après suppression
     return redirect(url_for('list_user'))
@@ -504,7 +572,12 @@ def delete_user(id):
 @login_required
 def list_user():
     # Récupérer tous les utilisateurs
-    users = User.query.all()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM users;")
+    users = cur.fetchall()
+    cur.close()
+    conn.close()
 
     # Renvoyer les informations à la page HTML
     return render_template('list_user.html', users=users)
@@ -519,15 +592,24 @@ def creer_user():
 @login_required
 def list_vehicule():
     # Récupérer tous les véhicules depuis la base de données
-    vehicules = Vehicule.query.all()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM vehicules;")
+    vehicules = cur.fetchall()
+    cur.close()
+    conn.close()
+
     return render_template('list_vehicule.html', vehicules=vehicules)
 
 @app.route('/vehicule/<int:id>')
 @login_required
 def vehicule(id):
     # Récupérer les détails du véhicule avec l'ID fourni
-    vehicule = Vehicule.query.get_or_404(id)
-    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM vehicules WHERE id = %s;", (id,))
+    vehicule = cur.fetchone()
+
     # Initialiser les informations des capteurs
     capteurs_info = {
         'fc51': {'status': 'Non configuré', 'badge': 'danger', 'data': None},
@@ -537,21 +619,32 @@ def vehicule(id):
     }
 
     # Vérifier et récupérer les données de chaque capteur
-    if vehicule.capteur_fc51:
-        fc51_data = Fc51_data.query.filter_by(capteur=vehicule.capteur_fc51).all()
-        capteurs_info['fc51'] = {'status': 'Déjà configuré', 'badge': 'success', 'data': fc51_data}
+    if vehicule and vehicule[3]:  # capteur_fc51
+        cur.execute("SELECT * FROM fc51_data WHERE capteur = %s ORDER BY id DESC LIMIT 1;", (vehicule[3],))
+        capteurs_info['fc51']['data'] = cur.fetchone()
+        capteurs_info['fc51']['status'] = 'Déjà configuré'
+        capteurs_info['fc51']['badge'] = 'success'
 
-    if vehicule.capteur_hx711:
-        hx711_data = Hx711_data.query.filter_by(capteur=vehicule.capteur_hx711).all()
-        capteurs_info['hx711'] = {'status': 'Déjà configuré', 'badge': 'success', 'data': hx711_data}
+    if vehicule and vehicule[4]:  # capteur_hx711
+        cur.execute("SELECT * FROM hx711_data WHERE capteur = %s ORDER BY id DESC LIMIT 1;", (vehicule[4],))
+        capteurs_info['hx711']['data'] = cur.fetchone()
+        capteurs_info['hx711']['status'] = 'Déjà configuré'
+        capteurs_info['hx711']['badge'] = 'success'
 
-    if vehicule.capteur_lm35:
-        lm35_data = Lm35_data.query.filter_by(capteur=vehicule.capteur_lm35).all()
-        capteurs_info['lm35'] = {'status': 'Déjà configuré', 'badge': 'success', 'data': lm35_data}
+    if vehicule and vehicule[5]:  # capteur_lm35
+        cur.execute("SELECT * FROM lm35_data WHERE capteur = %s ORDER BY id DESC LIMIT 1;", (vehicule[5],))
+        capteurs_info['lm35']['data'] = cur.fetchone()
+        capteurs_info['lm35']['status'] = 'Déjà configuré'
+        capteurs_info['lm35']['badge'] = 'success'
 
-    if vehicule.capteur_tcs230:
-        tcs230_data = Tcs230_data.query.filter_by(capteur=vehicule.capteur_tcs230).all()
-        capteurs_info['tcs230'] = {'status': 'Déjà configuré', 'badge': 'success', 'data': tcs230_data}
+    if vehicule and vehicule[6]:  # capteur_tcs230
+        cur.execute("SELECT * FROM tcs230_data WHERE capteur = %s ORDER BY id DESC LIMIT 1;", (vehicule[6],))
+        capteurs_info['tcs230']['data'] = cur.fetchone()
+        capteurs_info['tcs230']['status'] = 'Déjà configuré'
+        capteurs_info['tcs230']['badge'] = 'success'
+
+    cur.close()
+    conn.close()
 
     # Renvoyer les informations à la page "vehicule.html"
     return render_template('vehicule.html', vehicule=vehicule, capteurs_info=capteurs_info)
@@ -568,25 +661,17 @@ def ajout_vehicule():
         capteur_hx711 = request.form.get('capteur_hx711')
         capteur_lm35 = request.form.get('capteur_lm35')
 
-        # Créer une nouvelle instance de Vehicule
-        nouveau_vehicule = Vehicule(
-            marque=marque,
-            plaque=plaque,
-            capteur_fc51=capteur_fc51,
-            capteur_tcs230=capteur_tcs230,
-            capteur_hx711=capteur_hx711,
-            capteur_lm35=capteur_lm35
-        )
-
         # Ajouter à la base de données
         try:
-            db.session.add(nouveau_vehicule)
-            db.session.commit()
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("INSERT INTO vehicules (marque, plaque, capteur_fc51, capteur_tcs230, capteur_hx711, capteur_lm35) VALUES (%s, %s, %s, %s, %s, %s)", (marque, plaque, capteur_fc51, capteur_tcs230, capteur_hx711, capteur_lm35))
+            conn.commit()
+            cur.close()
+            conn.close()
             flash('Véhicule ajouté avec succès !')
-            return redirect(url_for('ajout_vehicule'))
         except Exception as e:
             flash(f'Erreur lors de l\'ajout du véhicule : {e}')
-            return redirect(url_for('ajout_vehicule'))
 
     return redirect(url_for('list_vehicule'))
 
@@ -594,17 +679,23 @@ def ajout_vehicule():
 @login_required
 def delete_vehicule(id):
     # Récupérer le véhicule avec l'ID donné
-    vehicule = Vehicule.query.get_or_404(id)
-    
     try:
-        # Supprimer le véhicule de la base de données
-        db.session.delete(vehicule)
-        db.session.commit()
-        flash(f'Vehicule {vehicule.marque} avec la plaque {vehicule.plaque} a été supprimé avec succès.', 'success')
-    except:
-        db.session.rollback()
-        flash(f'Erreur lors de la suppression du véhicule.', 'danger')
-    
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM vehicules WHERE id = %s;", (id,))
+        vehicule = cur.fetchone()
+        if vehicule:
+            cur.execute("DELETE FROM vehicules WHERE id = %s;", (id,))
+            conn.commit()
+            flash(f'Vehicule {vehicule[1]} avec la plaque {vehicule[2]} a été supprimé avec succès.', 'success')
+        else:
+            flash('Véhicule non trouvé.', 'error')
+    except Exception as e:
+        flash(f'Erreur lors de la suppression du véhicule : {e}', 'danger')
+    finally:
+        cur.close()
+        conn.close()
+
     # Rediriger vers la liste des véhicules après suppression
     return redirect(url_for('list_vehicule'))
 
