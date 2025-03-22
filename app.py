@@ -1,19 +1,162 @@
-from flask import Flask, request, jsonify
-from flask_mysqldb import MySQL
-import MySQLdb.cursors
-from flask_cors import CORS  # Import CORS
+from flask import Flask, request, jsonify, render_template, redirect, url_for, flash
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
+import psycopg2
+from psycopg2 import OperationalError, ProgrammingError
+import os
+import logging
 from datetime import datetime
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+CORS(app)
 
-# Configuration MySQL
-app.config['MYSQL_HOST'] = 'localhost'
-app.config['MYSQL_USER'] = 'root'
-app.config['MYSQL_PASSWORD'] = 'password'
-app.config['MYSQL_DB'] = 'hx711_data'
+# Configuration de la base de données PostgreSQL
+DB_HOST = 'dpg-cvfh71rqf0us73fqu880-a'
+DB_PORT = '5432'
+DB_NAME = 'iov_traffic_controller_db'
+DB_USER = 'iov_traffic_controller_db_user'
+DB_PASSWORD = 'opwr5i40CToMjB8Q58j9aQXt3vkv6c1p'
+DB_CONNECTION_STRING = os.getenv('DB_CONNECTION_STRING', "postgresql://iov_traffic_controller_db_user:opwr5i40CToMjB8Q58j9aQXt3vkv6c1p@dpg-cvfh71rqf0us73fqu880-a/iov_traffic_controller_db")
 
-mysql = MySQL(app)
+# Configuration Flask-Login
+app.config['SECRET_KEY'] = 'password'
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+# Logging configuration
+logging.basicConfig(level=logging.DEBUG)
+
+# Fonction pour établir une connexion à la base de données
+def get_db_connection():
+    try:
+        conn = psycopg2.connect(DB_CONNECTION_STRING)
+        logging.debug("Connexion à la base de données établie avec succès.")
+        return conn
+    except OperationalError as e:
+        logging.error(f"Erreur opérationnelle lors de la connexion à la base de données : {e}")
+        return jsonify({"error": f"Erreur opérationnelle : {str(e)}"}), 500
+    except ProgrammingError as e:
+        logging.error(f"Erreur de programmation lors de la connexion à la base de données : {e}")
+        return jsonify({"error": f"Erreur de programmation : {str(e)}"}), 500
+    except Exception as e:
+        logging.error(f"Erreur inattendue lors de la connexion à la base de données : {e}")
+        return jsonify({"error": f"Erreur inattendue : {str(e)}"}), 500
+
+# Créer les tables si elles n'existent pas
+def create_tables():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Table installation_count
+        cur.execute('''
+        CREATE TABLE IF NOT EXISTS installation_count (
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(100) NOT NULL,
+            installation_date TIMESTAMP NOT NULL,
+            app_version VARCHAR(50),
+            platform VARCHAR(50)
+        );
+        ''')
+
+        # Table operation_count
+        cur.execute('''
+        CREATE TABLE IF NOT EXISTS operation_count (
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(100) NOT NULL,
+            operation_called VARCHAR(100) NOT NULL,
+            operation_params JSONB,
+            paid BOOLEAN DEFAULT FALSE,
+            operation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        ''')
+
+        # Table hx711_data
+        cur.execute('''
+        CREATE TABLE IF NOT EXISTS hx711_data (
+            id SERIAL PRIMARY KEY,
+            capteur VARCHAR(100) NOT NULL,
+            status VARCHAR(100) NOT NULL,
+            poids FLOAT NOT NULL,
+            limit_ FLOAT NOT NULL,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        ''')
+
+        # Table fc51_data
+        cur.execute('''
+        CREATE TABLE IF NOT EXISTS fc51_data (
+            id SERIAL PRIMARY KEY,
+            capteur VARCHAR(100) NOT NULL,
+            status VARCHAR(100) NOT NULL,
+            obstacle_gauche VARCHAR(10) NOT NULL,
+            obstacle_droite VARCHAR(10) NOT NULL,
+            obstacle_devant VARCHAR(10) NOT NULL,
+            obstacle_deriere VARCHAR(10) NOT NULL,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        ''')
+
+        # Table lm35_data
+        cur.execute('''
+        CREATE TABLE IF NOT EXISTS lm35_data (
+            id SERIAL PRIMARY KEY,
+            capteur VARCHAR(100) NOT NULL,
+            status VARCHAR(100) NOT NULL,
+            temperature FLOAT NOT NULL,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        ''')
+
+        # Table tcs230_data
+        cur.execute('''
+        CREATE TABLE IF NOT EXISTS tcs230_data (
+            id SERIAL PRIMARY KEY,
+            capteur VARCHAR(100) NOT NULL,
+            status VARCHAR(100) NOT NULL,
+            red INTEGER NOT NULL,
+            green INTEGER NOT NULL,
+            blue INTEGER NOT NULL,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        ''')
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        logging.debug("Tables créées ou déjà existantes.")
+    except Exception as e:
+        logging.error(f"Erreur lors de la création des tables : {e}")
+        raise
+
+# Modèle pour la table User
+class User(UserMixin):
+    id = db.Column(db.Integer, primary_key=True)
+    nom = db.Column(db.String(150))
+    post_nom = db.Column(db.String(150))
+    prenom = db.Column(db.String(150))
+    password = db.Column(db.String(10050))
+    vehicule = db.Column(db.String(150))
+    role = db.Column(db.String(50))  # Peut être 'admin', 'chauffeur', 'gestionnaire'
+
+# Modèle pour la table Vehicule
+class Vehicule:
+    id = db.Column(db.Integer, primary_key=True)
+    marque = db.Column(db.String(100))
+    plaque = db.Column(db.String(100))
+    capteur_fc51 = db.Column(db.String(100))
+    capteur_tcs230 = db.Column(db.String(100))
+    capteur_hx711 = db.Column(db.String(100))
+    capteur_lm35 = db.Column(db.String(100))
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+# Créer les tables si elles n'existent pas déjà
+with app.app_context():
+    create_tables()
 
 #============================ INDEX ==================================
 @app.route('/', methods=['GET', 'POST'])
@@ -22,8 +165,7 @@ def index():
 
 #===========================================================================================
 
-# Route pour recevoir les données du capteur
-#/send_nomCapteur_data?capteur=id_capteur&status=ok&poids=857&limit_=6474
+# Route pour recevoir les données du capteur HX711
 @app.route('/send_hx711_data', methods=['GET'])
 def receive_hx711_data():
     capteur = request.args.get('capteur')
@@ -35,16 +177,13 @@ def receive_hx711_data():
         return jsonify({'error': 'Missing data'}), 400
     
     try:
-        # Connexion à la base de données
-        cur = mysql.connection.cursor()
-        # Insertion des données dans la table
+        conn = get_db_connection()
+        cur = conn.cursor()
         cur.execute("INSERT INTO hx711_data (capteur, status, poids, limit_) VALUES (%s, %s, %s, %s)", (capteur, status, poids, limit_))
-        mysql.connection.commit()
+        conn.commit()
         cur.close()
-        
         return jsonify({'message': 'Data inserted successfully'}), 200
-    
-    except MySQLdb.Error as e:
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 # Route pour obtenir les dernières données de poids
@@ -56,29 +195,24 @@ def get_last_hx711_data():
         return jsonify({'error': 'Missing data Capteur'}), 400
 
     try:
-        # Connexion à la base de données
-        cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-        # Sélection des dernières données insérées
+        conn = get_db_connection()
+        cur = conn.cursor()
         cur.execute("SELECT * FROM hx711_data WHERE capteur = %s ORDER BY id DESC LIMIT 1", (capteur,))
         data = cur.fetchone()
         cur.close()
-        
         if data:
             return jsonify(data), 200
         else:
             return jsonify({'error': 'No data found'}), 404
-
-    except MySQLdb.Error as e:
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# Route pour recevoir les données du capteur HX711
-#/send_fc51_data?capteur=id_capteur&status=ok&obstacle_gauche=0&obstacle_droite=0&obstacle_devant=1&obstacle_deriere=0
+# Route pour recevoir les données du capteur FC51
 @app.route('/send_fc51_data', methods=['GET'])
 def receive_fc51_data():
-    # Récupérer les paramètres depuis la requête
     capteur = request.args.get('capteur')
     status = request.args.get('status')
-    obstacle_gauche = request.args.get('obstacle_gauche', default="0", type=int)  # 0: pas d'obstacle, 1: obstacle
+    obstacle_gauche = request.args.get('obstacle_gauche', default="0", type=int)
     obstacle_droite = request.args.get('obstacle_droite', default="0", type=int)
     obstacle_devant = request.args.get('obstacle_devant', default="0", type=int)
     obstacle_deriere = request.args.get('obstacle_deriere', default="0", type=int)
@@ -87,63 +221,54 @@ def receive_fc51_data():
         return jsonify({'error': 'Missing data Capteur'}), 400
 
     try:
-        # Connexion à la base de données
-        cur = mysql.connection.cursor()
-        # Insertion des données dans la table
+        conn = get_db_connection()
+        cur = conn.cursor()
         cur.execute("INSERT INTO fc51_data (capteur, status, obstacle_gauche, obstacle_droite, obstacle_devant, obstacle_deriere) VALUES (%s, %s, %s, %s, %s, %s)", (capteur, status, obstacle_gauche, obstacle_droite, obstacle_devant, obstacle_deriere))
-        mysql.connection.commit()
+        conn.commit()
         cur.close()
-        
         return jsonify({'message': 'Data inserted successfully'}), 200
-    
-    except MySQLdb.Error as e:
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# Route pour récupérer les dernières données d'un capteur
+# Route pour récupérer les dernières données d'un capteur FC51
 @app.route('/get_last_fc51_data', methods=['GET'])
 def get_last_fc51_data():
     capteur = request.args.get('capteur')
 
     if not capteur:
         return jsonify({'error': 'Missing data Capteur'}), 400
+
     try:
-        # Connexion à la base de données
-        cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-        # Sélection des dernières données insérées
+        conn = get_db_connection()
+        cur = conn.cursor()
         cur.execute('SELECT * FROM fc51_data WHERE capteur = %s ORDER BY id DESC LIMIT 1', (capteur,))
         data = cur.fetchone()
         cur.close()
-        
         if data:
             return jsonify(data), 200
         else:
             return jsonify({'error': 'No data found'}), 404
-
-    except MySQLdb.Error as e:
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 # Route pour recevoir les données du capteur LM35
 @app.route('/send_lm35_data', methods=['GET'])
-#/send_lm35_data?capteur=id_capteur&status=ok&temperature=16
 def receive_lm35_data():
     capteur = request.args.get('capteur')
     status = request.args.get('status')
-    temperature = request.args.get('temperature')  # On récupère la température au lieu du poids
+    temperature = request.args.get('temperature')
     
     if not status or not temperature or not capteur:
         return jsonify({'error': 'Missing data'}), 400
     
     try:
-        # Connexion à la base de données
-        cur = mysql.connection.cursor()
-        # Insertion des données dans la table (capteur, statut et température)
+        conn = get_db_connection()
+        cur = conn.cursor()
         cur.execute("INSERT INTO lm35_data (capteur, status, temperature) VALUES (%s, %s, %s)", (capteur, status, temperature))
-        mysql.connection.commit()
+        conn.commit()
         cur.close()
-        
         return jsonify({'message': 'Temperature data inserted successfully'}), 200
-    
-    except MySQLdb.Error as e:
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 # Route pour obtenir les dernières données de température
@@ -155,24 +280,20 @@ def get_last_lm35_data():
         return jsonify({'error': 'Missing data Capteur'}), 400
 
     try:
-        # Connexion à la base de données
-        cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-        # Sélection des dernières données de température insérées pour le capteur spécifié
+        conn = get_db_connection()
+        cur = conn.cursor()
         cur.execute("SELECT * FROM lm35_data WHERE capteur = %s ORDER BY id DESC LIMIT 1", (capteur,))
         data = cur.fetchone()
         cur.close()
-        
         if data:
             return jsonify(data), 200
         else:
             return jsonify({'error': 'No data found'}), 404
-
-    except MySQLdb.Error as e:
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# Route pour recevoir les données du capteur TCS 230
+# Route pour recevoir les données du capteur TCS230
 @app.route('/send_tcs230_data', methods=['GET'])
-#/send_tcs230_data?capteur=id_capteur&status=ok&red=1&green=0&blue=0
 def receive_tcs230_data():
     capteur = request.args.get('capteur')
     status = request.args.get('status')
@@ -184,20 +305,16 @@ def receive_tcs230_data():
         return jsonify({'error': 'Missing data'}), 400
     
     try:
-        # Connexion à la base de données
-        cur = mysql.connection.cursor()
-        # Insertion des données dans la table
-        cur.execute("INSERT INTO tcs230_data (capteur, status, red, green, blue) VALUES (%s, %s, %s, %s, %s)", 
-                    (capteur, status, red, green, blue))
-        mysql.connection.commit()
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("INSERT INTO tcs230_data (capteur, status, red, green, blue) VALUES (%s, %s, %s, %s, %s)", (capteur, status, red, green, blue))
+        conn.commit()
         cur.close()
-        
         return jsonify({'message': 'Data inserted successfully'}), 200
-    
-    except MySQLdb.Error as e:
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# Route pour obtenir les dernières données du capteur TCS 230
+# Route pour obtenir les dernières données du capteur TCS230
 @app.route('/get_last_tcs230_data', methods=['GET'])
 def get_last_tcs230_data():
     capteur = request.args.get('capteur')
@@ -206,111 +323,23 @@ def get_last_tcs230_data():
         return jsonify({'error': 'Missing data Capteur'}), 400
 
     try:
-        # Connexion à la base de données
-        cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-        # Sélection des dernières données insérées
+        conn = get_db_connection()
+        cur = conn.cursor()
         cur.execute("SELECT * FROM tcs230_data WHERE capteur = %s ORDER BY id DESC LIMIT 1", (capteur,))
         data = cur.fetchone()
         cur.close()
-        
         if data:
             return jsonify(data), 200
         else:
             return jsonify({'error': 'No data found'}), 404
-
-    except MySQLdb.Error as e:
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
-
-
 
 # Simulation d'une alerte en cas d'obstacle
 def generate_alert(message):
     print(f"ALERTE: {message}")
 
 #============================================================== MODELS =========================================================
-
-from flask import render_template, redirect, url_for, flash
-from flask_sqlalchemy import SQLAlchemy
-from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
-from werkzeug.security import generate_password_hash, check_password_hash
-
-# Configuration MySQL pour SQLAlchemy
-app.config['SECRET_KEY'] = 'password'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://root:password@localhost/hx711_data'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
-
-# Initialisation Flask-Login
-login_manager = LoginManager()
-login_manager.init_app(app)
-login_manager.login_view = 'login'
-
-# Modèle pour la table User
-class User(UserMixin, db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    nom = db.Column(db.String(150))
-    post_nom = db.Column(db.String(150))
-    prenom = db.Column(db.String(150))
-    password = db.Column(db.String(10050))
-    vehicule = db.Column(db.String(150))
-    role = db.Column(db.String(50))  # Peut être 'admin', 'chauffeur', 'gestionnaire'
-
-# Modèle pour la table Vehicule
-class Vehicule(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    marque = db.Column(db.String(100))
-    plaque = db.Column(db.String(100))
-    capteur_fc51 = db.Column(db.String(100))
-    capteur_tcs230 = db.Column(db.String(100))
-    capteur_hx711 = db.Column(db.String(100))
-    capteur_lm35 = db.Column(db.String(100))
-
-# Modèle pour la table hx711_data
-class Hx711_data(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    capteur = db.Column(db.String(100))
-    status = db.Column(db.String(100))
-    poids = db.Column(db.Float)
-    limit_ = db.Column(db.Float)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-
-# Modèle pour la table fc51_data
-class Fc51_data(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    capteur = db.Column(db.String(100))
-    status = db.Column(db.String(100))
-    obstacle_gauche=db.Column(db.String(10))
-    obstacle_droite=db.Column(db.String(10))
-    obstacle_devant=db.Column(db.String(10))
-    obstacle_deriere=db.Column(db.String(10))
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-
-# Modèle pour la table lm35_data
-class Lm35_data(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    capteur = db.Column(db.String(100))
-    status = db.Column(db.String(100))
-    temperature = db.Column(db.Float)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-
-# Modèle pour la table tcs230_data
-class Tcs230_data(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    capteur = db.Column(db.String(100))
-    status = db.Column(db.String(100))
-    red = db.Column(db.Integer)
-    green = db.Column(db.Integer)
-    blue = db.Column(db.Integer)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-
-@login_manager.user_loader
-def load_user(user_id):
-    return User.query.get(int(user_id))
-
-# Créer les tables si elles n'existent pas déjà
-with app.app_context():
-    db.create_all()
-
 
 # ===================================================== GESTION UTILISATEURs ===================================================
 
@@ -346,7 +375,7 @@ def signup():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    # Calcul des totaux pour chaque type de capteur (en excluant les valeurs NULL, None et vides)
+    # Calcul des totaux pour chaque type de capteur
     total_fc51 = Vehicule.query.filter(Vehicule.capteur_fc51 != None, Vehicule.capteur_fc51 != '').count()
     total_manquant_fc51 = Vehicule.query.filter(Vehicule.capteur_fc51 == '').count()
 
@@ -359,8 +388,7 @@ def dashboard():
     total_tcs230 = Vehicule.query.filter(Vehicule.capteur_tcs230 != None, Vehicule.capteur_tcs230 != '').count()
     total_manquant_tcs230 = Vehicule.query.filter(Vehicule.capteur_tcs230 == '').count()
 
-
-    # Total de capteurs (tous types confondus )
+    # Total de capteurs (tous types confondus)
     total_capteurs = total_fc51 + total_hx711 + total_lm35 + total_tcs230
 
     # Total de capteurs manquants
@@ -369,7 +397,7 @@ def dashboard():
     # Total de véhicules
     total_vehicules = Vehicule.query.count()
 
-    # Récupérer le dernier capteur ajouté (ici, en fonction de l'exemple donné, on choisit FC51 comme capteur principal)
+    # Récupérer le dernier capteur ajouté
     dernier_fc51 = Fc51_data.query.order_by(Fc51_data.id.desc()).first()
     
     if dernier_fc51:
@@ -414,7 +442,6 @@ def dashboard():
                            vehicule=vehicule, 
                            capteurs_data=capteurs_data)
 
-
 @app.route('/ajout_user', methods=['POST'])
 def ajout_user():
     # Récupération des données du formulaire
@@ -455,7 +482,6 @@ def ajout_user():
     # Redirection vers la liste des utilisateurs
     return redirect(url_for('list_user'))
 
-
 @app.route('/delete_user/<int:id>', methods=['GET', 'POST'])
 def delete_user(id):
     # Rechercher l'utilisateur par son ID
@@ -473,7 +499,6 @@ def delete_user(id):
     # Redirection vers la liste des utilisateurs après suppression
     return redirect(url_for('list_user'))
 
-
 @app.route('/list_users')
 @login_required
 def list_user():
@@ -486,7 +511,6 @@ def list_user():
 @app.route('/creer_user')
 @login_required
 def creer_user():
-    #return f'Bonjour, {current_user.nom}. Bienvenue sur le tableau de bord !'
     return render_template('creer_user.html')
 
 # Route pour afficher la liste des véhicules
@@ -530,7 +554,6 @@ def vehicule(id):
 
     # Renvoyer les informations à la page "vehicule.html"
     return render_template('vehicule.html', vehicule=vehicule, capteurs_info=capteurs_info)
-
 
 # Route pour ajouter un véhicule
 @app.route('/ajout_vehicule', methods=['GET', 'POST'])
@@ -584,18 +607,13 @@ def delete_vehicule(id):
     # Rediriger vers la liste des véhicules après suppression
     return redirect(url_for('list_vehicule'))
 
-
 @app.route('/logout')
 @login_required
 def logout():
     logout_user()
     return redirect(url_for('login'))
 
-
 #===============================================================================================================================
-
-
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
-
